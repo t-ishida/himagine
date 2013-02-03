@@ -1,0 +1,107 @@
+#!/usr/bin/perl -w
+use strict;
+use Himagine;
+use Himagine::Web;
+use Data::Dumper;
+use STDIO::Util qw/say getLine yesNo/;
+use GitHub::API qw/searchRepos searchIssues/;
+use Data::Dumper;
+my $BASE_DIR = '/Users/t_ishida/src/github/';
+my $USER_ID  = 't-ishida';
+my $PASS_WD  = 'hogehoge';
+
+if    ( !@ARGV or $ARGV[0] eq 'hima' ) { &create }
+elsif ( $ARGV[0] eq 'close' )          { &close }
+sub close {
+  Himagine::login ( $USER_ID, $PASS_WD );
+  say ( 'どれ終えるの? ちゃんとPullRequest送った?' );
+  my $d;
+  opendir $d, $BASE_DIR or die '開けないよ';
+  my @workings = grep { $_ and !/^\.+$/ } readdir $d;
+  closedir $d;
+
+  Himagine::showDirList ( @workings );
+  my $index = getLine ( 
+    'どれ?', 
+    sub { $_[0] =~ /^\d+$/ and scalar @workings >= $_[0] and $_[0] } 
+  ) - 1;
+  $BASE_DIR =~ s#/$##;
+  `rm -fr $BASE_DIR/$workings[$index]`;
+  my %info = Himagine::separateValuesByDirName  ( $workings[$index] ) ;
+  GitHub::API::delete ( { owner => $info{owner}, name  => $info{rep} });
+  say ( 'やったね! 君の暇のおかげで、世界が少しだけ変わったよ!' );
+  my $comment = getLine ( 'で、何を変えたんだっけ?', sub { $_[0] =~ /./ } );
+  Himagine::Web::post ( 
+    uid => '1421677',
+    issue_id => $info{issue},
+    owner => $info{owner},
+    repository => $info{rep},
+    comment => $comment,
+  );
+  say ( 'stfuawsc' );
+  say ( 'じゃ' );
+}
+
+sub create {
+  Himagine::login ( $USER_ID, $PASS_WD );
+  ## キーワードの取得
+  my $keyword = getLine ( '暇なん? 何する?' );
+  say ( $keyword . ' するのね。探してくるから、もう少し暇しててね。' );
+
+  ## リポジトリの取得
+  my @repos = grep { $_->{issues} = searchIssues ( $_->{owner}, $_->{name} ); @{$_->{issues}} }
+  sort { $b->{watchers} <=> $a->{watchers} } 
+  grep { $_->{watchers} } 
+  @{searchRepos ( $keyword )->{repositories}};
+
+  ## リポジトリの選択
+  say ( $keyword . 'にマッチするIssueが有るリポジトリだよ' );
+  my $target_rep = {};
+  while ( 1 )  {
+    Himagine::showRepositoryList ( @repos );
+    my $index = getLine ( 
+      'どれ見る?[1-' . @repos . ']', 
+      sub { $_[0] =~ /^\d+$/ and @repos >= $_[0] and $_[0] } 
+    ) - 1;
+    say ( $repos[$index]->{name} );
+    say ( $repos[$index]->{description} );
+    if ( yesNo ( 'っていうプロジェクトだけど、これで良いの?' ) ) {
+      $target_rep = $repos[$index];
+      last;
+    }
+  }
+
+  ##
+  ## issueの選択
+  ##
+  say ( $target_rep->{name} . 'のissueだよ' );
+  my $target_issue = {};
+  while ( 1 ) {
+    Himagine::showIssueList ( $target_rep );
+    my $index = getLine (  
+      'どれする?[1-' . @{$target_rep->{issues}} . ']',
+      sub { $_[0] =~ /^\d+$/ and @{$target_rep->{issues}} >= $_[0]  and $_[0] }
+    ) - 1;
+    
+    say ( $target_rep->{issues}[$index]{title} );
+    say ( $target_rep->{issues}[$index]{body} );
+    if ( yesNo ( 'っていうIssueだけど、これやるの?' ) ) {
+      $target_issue = $target_rep->{issues}[$index];
+      last;
+    }
+  }
+  ## forkしてクローンする
+  GitHub::API::fork ( $target_rep ); 
+
+  -d $BASE_DIR or 
+    mkdir $BASE_DIR or 
+      die 'ディレクトリが作れないよ';
+
+  my $dirname = $BASE_DIR;
+  $dirname .= '/OWNER_' . $target_rep->{owner} . '_REP_' . $target_rep->{name} . '_ISSUE_' . $target_issue->{number};
+  sleep(3);
+  GitHub::API::clone ( $USER_ID, $target_rep->{name}, $dirname );
+  say ( 'stfuawsc' );
+  say ( 'じゃ' );
+}
+1;
